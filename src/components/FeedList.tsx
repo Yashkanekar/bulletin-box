@@ -1,65 +1,85 @@
 // src/components/FeedList.tsx
-'use client'
+"use client";
 
-import React, { useEffect, useState } from 'react'
-import ArticleCard from './ArticleCard'
-import { Article } from '@/lib/fetchFeeds'
-import {
-  getAllArticlesFromDB,
-  saveArticlesToDB,
-} from '@/lib/db'
+import React, { useEffect, useState } from "react";
+import ArticleCard from "./ArticleCard";
+import { Article } from "@/lib/fetchFeeds";
+import { getAllArticlesFromDB, saveArticlesToDB } from "@/lib/db";
 
 export default function FeedList() {
-  const [articles, setArticles] = useState<Article[]>([])
-  const [isLoading, setIsLoading] = useState<boolean>(true)
-  const [error, setError] = useState<string | null>(null)
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // ----- Helper: dedupe an array of articles by "id::source" -----
+  function dedupeArticles(input: Article[]): Article[] {
+    const seen = new Set<string>();
+    const output: Article[] = [];
+    for (const a of input) {
+      const key = `${a.id}::${a.source}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        output.push(a);
+      }
+    }
+    return output;
+  }
 
   // 1. On mount, load from IndexedDB first
   useEffect(() => {
     async function loadCached() {
       try {
-        const cached = await getAllArticlesFromDB()
+        const cached = await getAllArticlesFromDB();
         if (cached.length > 0) {
-          setArticles(cached)
+          // Dedupe before setting state
+          const uniqueCached = dedupeArticles(cached);
+          setArticles(uniqueCached);
         }
       } catch (err) {
-        console.error('Failed to load cached articles:', err)
+        console.error("Failed to load cached articles:", err);
       } finally {
-        setIsLoading(false)
+        setIsLoading(false);
       }
     }
-    loadCached()
-  }, [])
+    loadCached();
+  }, []);
 
   // 2. Then fetch fresh from /api/feeds
   useEffect(() => {
     async function fetchAndCache() {
       try {
-        const res = await fetch('/api/feeds')
+        const res = await fetch("/api/feeds");
         if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`)
+          throw new Error(`HTTP ${res.status}`);
         }
-        const json = await res.json()
-        const fetched: Article[] = json.articles
-        if (Array.isArray(fetched) && fetched.length > 0) {
-          setArticles(fetched)
-          // Update IndexedDB
+        const json = await res.json();
+        const fetched: Article[] = Array.isArray(json.articles)
+          ? json.articles
+          : [];
+
+        if (fetched.length > 0) {
+          // Dedupe fetched list
+          const uniqueFetched = dedupeArticles(fetched);
+
+          setArticles(uniqueFetched);
+
+          // Save deduped array to IndexedDB
           try {
-            await saveArticlesToDB(fetched)
+            await saveArticlesToDB(uniqueFetched);
           } catch (dbErr) {
-            console.error('Failed to save articles to DB:', dbErr)
+            console.error("Failed to save articles to DB:", dbErr);
           }
         }
       } catch (err: any) {
-        console.error('Failed to fetch /api/feeds:', err)
-        setError('Unable to fetch latest articles. Showing cached results.')
+        console.error("Failed to fetch /api/feeds:", err);
+        setError("Unable to fetch latest articles. Showing cached results.");
       } finally {
-        setIsLoading(false)
+        setIsLoading(false);
       }
     }
 
-    fetchAndCache()
-  }, [])
+    fetchAndCache();
+  }, []);
 
   return (
     <section>
@@ -81,10 +101,12 @@ export default function FeedList() {
       )}
 
       <div>
-        {articles.map((article) => (
-          <ArticleCard key={article.id} article={article} />
-        ))}
+        {articles.map((article) => {
+          // Use exactly the same dedupe key as the React key:
+          const reactKey = `${article.id}::${article.source}`;
+          return <ArticleCard key={reactKey} article={article} />;
+        })}
       </div>
     </section>
-  )
+  );
 }

@@ -1,4 +1,4 @@
-
+// src/lib/db.ts
 import { openDB, DBSchema, IDBPDatabase } from "idb";
 import { Article } from "./fetchFeeds";
 
@@ -18,21 +18,25 @@ let dbPromise: Promise<IDBPDatabase<OfflineNewsDB>> | null = null;
 
 function getDB() {
   if (!dbPromise) {
-    dbPromise = openDB<OfflineNewsDB>("offline-news-db", 1, {
-      upgrade(db) {
-        // "articles" store
-        if (!db.objectStoreNames.contains("articles")) {
-          const store = db.createObjectStore("articles", {
+    // Bump version from 1 → 2 to force the upgrade() callback
+    dbPromise = openDB<OfflineNewsDB>("offline-news-db", 2, {
+      upgrade(db, oldVersion, newVersion, transaction) {
+        // If coming from a version < 1, create "articles"
+        if (oldVersion < 1) {
+          const articlesStore = db.createObjectStore("articles", {
             keyPath: "id",
           });
-          store.createIndex("by-pubDate", "pubDate");
+          articlesStore.createIndex("by-pubDate", "pubDate");
         }
-        //"summaries" store
-        if (!db.objectStoreNames.contains("summaries")) {
+
+        // If coming from a version < 2, create "summaries"
+        if (oldVersion < 2) {
           db.createObjectStore("summaries", {
             keyPath: "id",
           });
         }
+
+        // (If you later bump to version 3+, you can handle additional upgrades here)
       },
     });
   }
