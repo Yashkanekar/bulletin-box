@@ -1,7 +1,7 @@
 // src/components/FeedList.tsx
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import ArticleCard from "./ArticleCard";
 import { Article } from "@/lib/fetchFeeds";
 import { getAllArticlesFromDB, saveArticlesToDB } from "@/lib/db";
@@ -11,7 +11,13 @@ export default function FeedList() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // ----- Helper: dedupe an array of articles by "id::source" -----
+  // How many articles to show so far
+  const [visibleCount, setVisibleCount] = useState<number>(10);
+
+  // A ref to the “sentinel” div at the bottom
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  // — Helper: dedupe by “id::source” —
   function dedupeArticles(input: Article[]): Article[] {
     const seen = new Set<string>();
     const output: Article[] = [];
@@ -31,7 +37,6 @@ export default function FeedList() {
       try {
         const cached = await getAllArticlesFromDB();
         if (cached.length > 0) {
-          // Dedupe before setting state
           const uniqueCached = dedupeArticles(cached);
           setArticles(uniqueCached);
         }
@@ -58,12 +63,8 @@ export default function FeedList() {
           : [];
 
         if (fetched.length > 0) {
-          // Dedupe fetched list
           const uniqueFetched = dedupeArticles(fetched);
-
           setArticles(uniqueFetched);
-
-          // Save deduped array to IndexedDB
           try {
             await saveArticlesToDB(uniqueFetched);
           } catch (dbErr) {
@@ -81,6 +82,34 @@ export default function FeedList() {
     fetchAndCache();
   }, []);
 
+  // 3. IntersectionObserver to increment visibleCount when sentinel is visible
+  const onIntersection = useCallback(
+    (entries: IntersectionObserverEntry[]) => {
+      const first = entries[0];
+      if (first.isIntersecting) {
+        setVisibleCount((prev) => Math.min(prev + 10, articles.length));
+      }
+    },
+    [articles.length]
+  );
+
+  useEffect(() => {
+    if (!sentinelRef.current) return;
+    const observer = new IntersectionObserver(onIntersection, {
+      root: null,
+      rootMargin: "0px",
+      threshold: 1.0,
+    });
+    observer.observe(sentinelRef.current);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [onIntersection]);
+
+  // The subset of articles to render right now
+  const visibleArticles = articles.slice(0, visibleCount);
+
   return (
     <section>
       <div className="flex items-center justify-between mb-4">
@@ -94,19 +123,26 @@ export default function FeedList() {
         </div>
       )}
 
-      {articles.length === 0 && !isLoading && (
+      {visibleArticles.length === 0 && !isLoading && (
         <p className="text-gray-600 dark:text-gray-400">
           No articles to show. You might be offline or have no cached items.
         </p>
       )}
 
       <div>
-        {articles.map((article) => {
-          // Use exactly the same dedupe key as the React key:
+        {visibleArticles.map((article) => {
           const reactKey = `${article.id}::${article.source}`;
           return <ArticleCard key={reactKey} article={article} />;
         })}
       </div>
+
+      {/* Sentinel div for infinite scroll */}
+      <div ref={sentinelRef} className="h-8" />
+
+      {/* If not loading, and there are more articles to load, show a “Loading more…” indicator */}
+      {!isLoading && visibleCount < articles.length && (
+        <p className="mt-4 text-center text-gray-500">Loading more…</p>
+      )}
     </section>
   );
 }
