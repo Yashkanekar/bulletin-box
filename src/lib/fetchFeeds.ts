@@ -1,4 +1,3 @@
-
 import Parser from "rss-parser";
 import { FEEDS, FeedConfig } from "./feeds";
 
@@ -34,7 +33,7 @@ export async function fetchFeed(feedConfig: FeedConfig): Promise<Article[]> {
       // Create a deterministic ID: e.g. base64 of link + isoDate (fallback to pubDate)
       const rawId = `${item.link || ""}::${item.isoDate || item.pubDate || ""}`;
       const id = Buffer.from(rawId).toString("base64");
-
+      if (source === "Hacker News") console.log(item.contentSnippet, item);
       return {
         id,
         title: item.title || "No title",
@@ -62,10 +61,10 @@ export async function fetchAllFeeds(): Promise<Article[]> {
   const arraysOfArticles = await Promise.all(
     FEEDS.map((feedCfg) => fetchFeed(feedCfg))
   );
-  console.log(`Fetched ${arraysOfArticles} feeds`);
+  //   console.log(`Fetched ${arraysOfArticles} feeds`);
   // Flatten into a single array
   const all = arraysOfArticles.flat();
-  console.log(`flat array`,all);
+  //   console.log(`flat array`,all);
 
   // Sort by most recent first (use isoDate if available; otherwise parse pubDate)
   all.sort((a, b) => {

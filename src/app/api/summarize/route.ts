@@ -1,63 +1,69 @@
 // src/app/api/summarize/route.ts
-import { NextResponse } from "next/server";
-import OpenAI from "openai";
+import { NextResponse } from 'next/server'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 
-if (!process.env.OPENAI_API_KEY) {
-  throw new Error("Missing OPENAI_API_KEY in environment");
+const apiKey = process.env.GEMINI_API_KEY
+if (!apiKey) {
+  throw new Error('Missing GEMINI_API_KEY in environment')
 }
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-interface SummarizeRequest {
-  id: string;
-  content: string;
-}
+const genAI = new GoogleGenerativeAI(apiKey)
 
 export async function POST(request: Request) {
   try {
-    const body: SummarizeRequest = await request.json();
-    const { id, content } = body;
+    const { id, content } = await request.json()
+    console.log(id,content)
 
     if (!id || !content) {
       return NextResponse.json(
-        { error: "Both id and content are required." },
+        { error: 'Missing id or content in request body' },
         { status: 400 }
-      );
+      )
     }
 
-    // Build a prompt for summarization.
-    const systemPrompt = `
-You are an AI assistant specialized in summarizing news articles. 
-When given the article content, produce a concise summary (3–4 sentences) that captures the main points.
-`;
+    // Use the free-tier text model
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' })
+    const chat = model.startChat({ history: [] })
+    const prompt = `Summarize this news article in 2–3 sentences:\n\n${content}`
 
-    const userPrompt = `
-Please summarize the following news content in 3–4 sentences:
+    // Attempt to send the summarization request
+    let result
+    try {
+      result = await chat.sendMessage(prompt)
+    } catch (err: any) {
+      // If Gemini SDK throws an error object with HTTP details:
+      const status = err.statusCode || err.response?.status
+      // Check if it’s a 429
+      if (status === 429) {
+        // Try to read the Retry-After header (in seconds)
+        const retryHeader = err.response?.headers?.get('retry-after')
+        const retryAfterSec = retryHeader ? Number(retryHeader) : 60
+        return NextResponse.json(
+          {
+            error: 'Rate limit exceeded. Please retry later.',
+            retryAfter: retryAfterSec,
+          },
+          { status: 429 }
+        )
+      }
+      // For any other error, rethrow
+      throw err
+    }
 
-"${content}"
-`;
-
-    // Call OpenAI’s chat completion endpoint
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
-        { role: "system", content: systemPrompt.trim() },
-        { role: "user", content: userPrompt.trim() },
-      ],
-      temperature: 0.5,
-      max_tokens: 150,
-    });
-
-    const summary = completion.choices[0]?.message?.content?.trim();
+    // If we got here, chat.sendMessage succeeded
+    const response = await result.response
+    const summary = response.text()
     if (!summary) {
-      throw new Error("No summary returned from OpenAI");
+      throw new Error('Empty summary returned from Gemini')
     }
 
-    return NextResponse.json({ summary });
+    return NextResponse.json({ summary })
   } catch (err: any) {
-    console.error("[/api/summarize] Error:", err);
+    console.error('[/api/summarize] Gemini summarize error:', err)
+
+    // If it wasn’t already handled as 429, respond with 500
     return NextResponse.json(
-      { error: "Failed to generate summary." },
+      { error: 'Failed to generate summary.' },
       { status: 500 }
-    );
+    )
   }
 }
