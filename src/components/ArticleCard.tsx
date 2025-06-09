@@ -55,6 +55,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
         body: JSON.stringify({
           id: article.id,
           content: contentToSummarize,
+          URL: article.link,
         }),
       });
 
