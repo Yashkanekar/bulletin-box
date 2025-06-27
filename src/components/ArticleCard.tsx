@@ -4,8 +4,8 @@
 import React, { useEffect, useState } from "react";
 import { Article } from "@/lib/fetchFeeds";
 import { getSummaryFromDB, saveSummaryToDB } from "@/lib/db";
-import format from "date-fns/format";
-import parseISO from "date-fns/parseISO";
+import { format } from "date-fns/format";
+import { parseISO } from "date-fns/parseISO";
 
 interface ArticleCardProps {
   article: Article;
